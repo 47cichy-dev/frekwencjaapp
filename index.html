@@ -111,7 +111,7 @@ label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:0
       <input class="field" id="invite2" type="text" inputmode="numeric" maxlength="14" autocomplete="off" placeholder="12 cyfr">
       <div class="err" id="inviteErr"></div>
       <button class="big full" id="joinBtn">Dołącz</button>
-      <button class="link" id="cancelInv">Anuluj i wyloguj</button>
+      <button class="link" id="cancelInv">Wyloguj</button>
       <p class="note" style="margin-top:10px">Identyfikator konta (UID):<br><span id="uidTxt" style="user-select:all;word-break:break-all"></span></p>
     </section>
   </div>
@@ -336,7 +336,7 @@ else{
     if(await redeem(user,c))location.reload();
     else $('inviteErr').textContent='Ten kod jest nieprawidłowy lub został już wykorzystany.';
   };
-  $('cancelInv').onclick=async()=>{try{await user.delete()}catch(e){}try{await signOut(auth)}catch(e){}};
+  $('cancelInv').onclick=()=>signOut(auth);
   $('genInv').onclick=async()=>{
     try{await setDoc(doc(db,'invites',genCode()),{createdAt:serverTimestamp(),usedBy:null});loadInvites()}
     catch(e){$('invList').textContent='Nie udało się utworzyć kodu (sprawdź reguły Firestore i ADMIN_UID).'}
