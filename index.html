@@ -65,6 +65,17 @@ label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:0
 .pick{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
 .pick button{aspect-ratio:1;border:0;border-radius:14px;background:var(--chip);font-size:1.6rem;cursor:pointer}
 .pick button:active{transform:scale(.9)}
+.srow{display:flex;align-items:center;gap:14px}
+.mini{position:relative;width:64px;height:64px;flex:none}
+.mini svg{width:100%;height:100%;transform:rotate(-90deg)}
+.mini circle{fill:none;stroke-width:7;stroke-linecap:round}
+.mini .tr{stroke:var(--track)}
+.mini .pr{stroke:var(--ok);stroke-dasharray:163.4;stroke-dashoffset:163.4;transition:stroke-dashoffset .5s,stroke .3s}
+.mini .n{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.25rem}
+.sinfo{flex:1;min-width:0}
+.sname{font-weight:700;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.smeta{font-size:.78rem;color:var(--muted);margin-top:2px}
+.del{border:0;background:var(--chip);color:var(--muted);width:34px;height:34px;border-radius:50%;font-size:1.2rem;cursor:pointer;flex:none}
 .hide{display:none!important}
 </style>
 </head>
@@ -97,33 +108,21 @@ label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:0
       <div class="pick" id="pickGrid"></div>
       <button class="ghost hide" id="useGoogle" style="margin-top:12px">Użyj zdjęcia z konta Google</button>
     </section>
-    <section class="card hero">
-      <div class="ring">
-        <svg viewBox="0 0 120 120"><circle class="tr" cx="60" cy="60" r="54"/><circle class="pr" id="pr" cx="60" cy="60" r="54"/></svg>
-        <div class="c"><div class="num" id="left">0</div><div class="cap">lekcji zostało</div></div>
-      </div>
-      <div class="msg" id="msg"></div>
-      <div class="tiles">
-        <div class="tile"><b id="t1">0</b><span>limit</span></div>
-        <div class="tile"><b id="t2">0</b><span>opuszczone</span></div>
-        <div class="tile"><b id="t3">0</b><span>wszystkich lekcji</span></div>
-      </div>
-    </section>
     <section class="card">
-      <p class="sec">Moje nieobecności</p>
-      <div class="add">
-        <div class="step"><button data-t="missed" data-d="-1">−</button><input id="missed" type="number" min="0" inputmode="numeric" value="0"><button data-t="missed" data-d="1">+</button></div>
-        <button class="big" id="plus">+ Nieobecność</button>
-      </div>
-    </section>
-    <section class="card">
-      <p class="sec">Ustawienia semestru</p>
+      <p class="sec">Semestr</p>
       <div class="grid">
         <div><label for="weeks">Tygodni w semestrze</label><div class="step"><button data-t="weeks" data-d="-1">−</button><input id="weeks" type="number" min="1" max="40" inputmode="numeric" value="18"><button data-t="weeks" data-d="1">+</button></div></div>
-        <div><label for="per">Lekcji tygodniowo</label><div class="step"><button data-t="per" data-d="-1">−</button><input id="per" type="number" min="1" max="60" inputmode="numeric" value="5"><button data-t="per" data-d="1">+</button></div></div>
-        <div style="grid-column:1/-1"><label for="req">Wymagana frekwencja (%)</label><div class="step"><button data-t="req" data-d="-5">−</button><input id="req" type="number" min="0" max="100" inputmode="numeric" value="50"><button data-t="req" data-d="5">+</button></div></div>
+        <div><label for="req">Wymagana frekwencja (%)</label><div class="step"><button data-t="req" data-d="-5">−</button><input id="req" type="number" min="0" max="100" inputmode="numeric" value="50"><button data-t="req" data-d="5">+</button></div></div>
       </div>
     </section>
+    <section class="card">
+      <p class="sec">Dodaj przedmiot</p>
+      <input class="field" id="sName" type="text" maxlength="40" placeholder="Nazwa przedmiotu (np. Matematyka)">
+      <label>Lekcji tygodniowo</label>
+      <div class="add"><div id="sPerSlot" style="flex:1"></div><button class="big" id="addSub">+ Dodaj</button></div>
+      <div class="err" id="sErr" style="margin:8px 0 0"></div>
+    </section>
+    <div id="list"></div>
     <p class="note" id="sync">Dane zapisują się na Twoim koncie.</p>
   </div>
 </main>
@@ -134,7 +133,6 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signInWithPopup,GoogleAuthProvider,sendPasswordResetEmail,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,getDoc,setDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-/* ====== WKLEJ TUTAJ SWOJE KLUCZE Z FIREBASE (Ustawienia projektu → Twoje aplikacje → Aplikacja internetowa) ====== */
 const firebaseConfig = {
   apiKey: "AIzaSyBN_q05s1N0fixyF3NrJBoccnsVWui3gdM",
   authDomain: "frekwencja-app.firebaseapp.com",
@@ -144,18 +142,97 @@ const firebaseConfig = {
   appId: "1:428559534894:web:fb184c79b4cae43eb608bf",
   measurementId: "G-W0JN1LRHT8"
 };
-/* ================================================================================================================ */
 
 const $=id=>document.getElementById(id);
 const configured=!firebaseConfig.apiKey.startsWith("WKLEJ");
-let auth,db,user=null,mode="in",saveTimer,avatar="";
-const ids=['weeks','per','req','missed'];
+let auth,db,user=null,mode="in",saveTimer,avatar="",newPer=5;
+const S={weeks:18,req:50,subjects:[]};
 
 const errs={"auth/invalid-credential":"Nieprawidłowy e-mail lub hasło.","auth/invalid-email":"Niepoprawny adres e-mail.","auth/email-already-in-use":"Ten e-mail ma już konto. Zaloguj się.","auth/weak-password":"Hasło jest za słabe (min. 6 znaków).","auth/missing-password":"Wpisz hasło.","auth/popup-closed-by-user":"Okno logowania zostało zamknięte.","auth/too-many-requests":"Za dużo prób. Spróbuj za chwilę.","auth/network-request-failed":"Brak połączenia z internetem."};
 const showErr=e=>{$('err').style.color='var(--bad)';$('err').textContent=errs[e.code]||"Coś poszło nie tak. Spróbuj ponownie."};
-
 function setMode(m){mode=m;$('tabIn').classList.toggle('on',m==='in');$('tabUp').classList.toggle('on',m==='up');$('go').textContent=m==='in'?'Zaloguj się':'Załóż konto';$('pass').autocomplete=m==='in'?'current-password':'new-password';$('err').textContent='';$('reset').classList.toggle('hide',m==='up')}
 $('tabIn').onclick=()=>setMode('in');$('tabUp').onclick=()=>setMode('up');
+
+const EMOJIS=['😀','😎','🤓','🦊','🐼','🐱','🐶','🦁','🐸','🐧','🦄','🚀','⚽','🎮','🎧','📚','🌈','🔥','🌵','🍕'];
+function renderAv(){
+  const b=$('avBtn');b.textContent='';
+  if(!user)return;
+  if(user.photoURL&&(avatar===''||avatar==='google')){const i=document.createElement('img');i.src=user.photoURL;i.referrerPolicy='no-referrer';i.alt='';b.appendChild(i)}
+  else if(avatar&&avatar!=='google')b.textContent=avatar;
+  else b.textContent=(user.email||'?')[0].toUpperCase();
+}
+EMOJIS.forEach(e=>{const x=document.createElement('button');x.textContent=e;x.onclick=()=>{avatar=e;renderAv();$('picker').classList.add('hide');save()};$('pickGrid').appendChild(x)});
+$('useGoogle').onclick=()=>{avatar='google';renderAv();$('picker').classList.add('hide');save()};
+$('avBtn').onclick=()=>$('picker').classList.toggle('hide');
+
+const weeksWord=n=>n===1?'tydzień':(n%10>=2&&n%10<=4&&!(n%100>=12&&n%100<=14))?'tygodnie':'tygodni';
+const updPill=()=>{$('pill').textContent=S.weeks+' '+weeksWord(S.weeks)};
+
+function save(){
+  if(!user)return;clearTimeout(saveTimer);
+  saveTimer=setTimeout(async()=>{
+    try{await setDoc(doc(db,'users',user.uid),{weeks:S.weeks,req:S.req,subjects:S.subjects,avatar},{merge:true});$('sync').textContent='Zapisano na koncie ✓'}
+    catch(e){$('sync').textContent='Błąd zapisu (sprawdź reguły Firestore).'}
+  },600);
+}
+
+function mkStep(val,min,max,onCh){
+  const d=document.createElement('div');d.className='step';
+  const b1=document.createElement('button'),b2=document.createElement('button'),i=document.createElement('input');
+  b1.textContent='−';b2.textContent='+';i.type='number';i.min=min;i.max=max;i.inputMode='numeric';i.value=val;
+  const set=v=>{v=Math.min(max,Math.max(min,Math.floor(v)||min));i.value=v;onCh(v)};
+  b1.onclick=()=>set((parseInt(i.value)||0)-1);
+  b2.onclick=()=>set((parseInt(i.value)||0)+1);
+  i.oninput=()=>{const v=parseInt(i.value);if(!isNaN(v))onCh(Math.min(max,Math.max(min,v)))};
+  d.append(b1,i,b2);return d;
+}
+
+function paint(c,sub){
+  const total=S.weeks*sub.per,need=Math.ceil(total*S.req/100),allowed=Math.max(0,total-need),left=allowed-sub.missed;
+  const low=left<=Math.ceil(allowed*.2),col=left<0?'var(--bad)':low?'var(--warn)':'var(--ok)';
+  const n=c.querySelector('.n');n.textContent=Math.max(0,left);n.style.color=col;
+  const pr=c.querySelector('.pr');pr.style.strokeDashoffset=163.4*(1-(allowed>0?Math.max(0,Math.min(1,left/allowed)):0));pr.style.stroke=col;
+  const m=c.querySelector('.smeta');
+  m.textContent=total===0?'Uzupełnij dane semestru.':left<0?`Przekroczono limit o ${-left}`:left===0?'Limit wyczerpany':`Możesz opuścić jeszcze ${left} · limit ${allowed}`;
+  m.style.color=left<0?'var(--bad)':'';
+}
+const paintAll=()=>document.querySelectorAll('#list .card').forEach(c=>{const sub=S.subjects.find(x=>x.id===c.dataset.id);if(sub)paint(c,sub)});
+
+function renderList(){
+  const L=$('list');L.textContent='';
+  if(!S.subjects.length){const p=document.createElement('p');p.className='note';p.textContent='Nie masz jeszcze przedmiotów. Dodaj pierwszy powyżej.';L.appendChild(p);return}
+  S.subjects.forEach(sub=>{
+    const c=document.createElement('section');c.className='card';c.dataset.id=sub.id;
+    c.innerHTML='<div class="srow"><div class="mini"><svg viewBox="0 0 64 64"><circle class="tr" cx="32" cy="32" r="26"/><circle class="pr" cx="32" cy="32" r="26"/></svg><div class="n"></div></div><div class="sinfo"><div class="sname"></div><div class="smeta"></div></div><button class="del" aria-label="Usuń przedmiot">×</button></div><div class="grid" style="margin-top:14px"><div><label>Opuszczone lekcje</label><div class="m"></div></div><div><label>Lekcji tygodniowo</label><div class="p"></div></div></div>';
+    c.querySelector('.sname').textContent=sub.name;
+    c.querySelector('.m').appendChild(mkStep(sub.missed,0,999,v=>{sub.missed=v;paint(c,sub);save()}));
+    c.querySelector('.p').appendChild(mkStep(sub.per,1,60,v=>{sub.per=v;paint(c,sub);save()}));
+    c.querySelector('.del').onclick=()=>{if(confirm('Usunąć przedmiot „'+sub.name+'"?')){S.subjects=S.subjects.filter(x=>x.id!==sub.id);renderList();save()}};
+    L.appendChild(c);paint(c,sub);
+  });
+}
+
+$('sPerSlot').appendChild(mkStep(5,1,60,v=>{newPer=v}));
+$('addSub').onclick=()=>{
+  const name=$('sName').value.trim();
+  if(!name){$('sErr').textContent='Wpisz nazwę przedmiotu.';return}
+  if(S.subjects.length>=30){$('sErr').textContent='Maksymalnie 30 przedmiotów.';return}
+  $('sErr').textContent='';
+  S.subjects.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),name,per:newPer,missed:0});
+  $('sName').value='';renderList();save();
+};
+$('sName').addEventListener('input',()=>{$('sErr').textContent=''});
+
+function onGlobal(){
+  S.weeks=Math.max(0,parseInt($('weeks').value)||0);
+  S.req=Math.min(100,Math.max(0,parseInt($('req').value)||0));
+  updPill();paintAll();save();
+}
+['weeks','req'].forEach(i=>$(i).addEventListener('input',onGlobal));
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{
+  const el=$(b.dataset.t),min=parseFloat(el.min)||0,max=parseFloat(el.max)||Infinity;
+  el.value=Math.min(max,Math.max(min,(parseInt(el.value)||0)+parseInt(b.dataset.d)));onGlobal();
+});
 
 if(!configured){$('cfgWarn').classList.remove('hide');$('authView').classList.remove('hide')}
 else{
@@ -172,57 +249,23 @@ else{
   onAuthStateChanged(auth,async u=>{
     user=u;
     $('authView').classList.toggle('hide',!!u);$('appView').classList.toggle('hide',!u);
-    if(u){
-      avatar='';
-      try{const s=await getDoc(doc(db,'users',u.uid));if(s.exists()){const d=s.data();ids.forEach(i=>{if(d[i]!==undefined)$(i).value=d[i]});if(typeof d.avatar==='string')avatar=d.avatar}}
-      catch(e){$('sync').textContent='Nie udało się wczytać danych (sprawdź reguły Firestore).'}
-      renderAv();$('useGoogle').classList.toggle('hide',!u.photoURL);
-      calc(false);
-    }
+    if(!u)return;
+    avatar='';S.weeks=18;S.req=50;S.subjects=[];
+    try{
+      const snap=await getDoc(doc(db,'users',u.uid));
+      if(snap.exists()){
+        const d=snap.data();
+        if(Number.isFinite(d.weeks))S.weeks=d.weeks;
+        if(Number.isFinite(d.req))S.req=d.req;
+        if(Array.isArray(d.subjects))S.subjects=d.subjects.filter(x=>x&&typeof x.name==='string').map(x=>({id:String(x.id||Math.random().toString(36).slice(2)),name:x.name.slice(0,40),per:Math.max(1,parseInt(x.per)||1),missed:Math.max(0,parseInt(x.missed)||0)}));
+        if(typeof d.avatar==='string')avatar=d.avatar;
+      }
+    }catch(e){$('sync').textContent='Nie udało się wczytać danych (sprawdź reguły Firestore).'}
+    $('weeks').value=S.weeks;$('req').value=S.req;
+    renderAv();$('useGoogle').classList.toggle('hide',!u.photoURL);updPill();renderList();
   });
 }
-
-const EMOJIS=['😀','😎','🤓','🦊','🐼','🐱','🐶','🦁','🐸','🐧','🦄','🚀','⚽','🎮','🎧','📚','🌈','🔥','🌵','🍕'];
-function renderAv(){
-  const b=$('avBtn');b.textContent='';
-  if(!user)return;
-  const useImg=user.photoURL&&(avatar===''||avatar==='google');
-  if(useImg){const i=document.createElement('img');i.src=user.photoURL;i.referrerPolicy='no-referrer';i.alt='';b.appendChild(i)}
-  else if(avatar&&avatar!=='google')b.textContent=avatar;
-  else b.textContent=(user.email||'?')[0].toUpperCase();
-}
-EMOJIS.forEach(e=>{const x=document.createElement('button');x.textContent=e;x.onclick=()=>{avatar=e;renderAv();$('picker').classList.add('hide');save()};$('pickGrid').appendChild(x)});
-$('useGoogle').onclick=()=>{avatar='google';renderAv();$('picker').classList.add('hide');save()};
-$('avBtn').onclick=()=>$('picker').classList.toggle('hide');
-const num=(id,def)=>{const v=parseFloat($(id).value);return isNaN(v)||v<0?def:v};
-const weeksWord=n=>n===1?'tydzień':(n%10>=2&&n%10<=4&&!(n%100>=12&&n%100<=14))?'tygodnie':'tygodni';
-function save(){
-  if(!user)return;clearTimeout(saveTimer);
-  saveTimer=setTimeout(async()=>{
-    const d={};ids.forEach(i=>d[i]=parseFloat($(i).value)||0);d.avatar=avatar;
-    try{await setDoc(doc(db,'users',user.uid),d,{merge:true});$('sync').textContent='Zapisano na koncie ✓'}
-    catch(e){$('sync').textContent='Błąd zapisu (sprawdź reguły Firestore).'}
-  },600);
-}
-function calc(doSave=true){
-  const w=Math.floor(num('weeks',0)),p=Math.floor(num('per',0)),r=Math.min(100,num('req',50)),m=Math.floor(num('missed',0));
-  const total=w*p,need=Math.ceil(total*r/100),allowed=Math.max(0,total-need),left=allowed-m;
-  const low=left<=Math.ceil(allowed*.2),col=left<0?'var(--bad)':low?'var(--warn)':'var(--ok)';
-  $('pill').textContent=w+' '+weeksWord(w);
-  $('left').textContent=Math.max(0,left);$('left').style.color=col;
-  const frac=allowed>0?Math.max(0,Math.min(1,left/allowed)):0;
-  $('pr').style.strokeDashoffset=339.3*(1-frac);$('pr').style.stroke=col;
-  $('msg').textContent=total===0?'Uzupełnij dane semestru.':left<0?`Przekroczono limit o ${-left} lekcji!`:left===0?'Limit wyczerpany – nie możesz już opuszczać.':low?'Uważaj, limit się kończy.':'Spokojnie, masz jeszcze zapas.';
-  $('t1').textContent=allowed;$('t2').textContent=m;$('t3').textContent=total;
-  if(doSave)save();
-}
-ids.forEach(i=>$(i).addEventListener('input',()=>calc()));
-document.querySelectorAll('.step button').forEach(b=>b.onclick=()=>{
-  const el=$(b.dataset.t),min=parseFloat(el.min)||0,max=el.max?parseFloat(el.max):Infinity;
-  el.value=Math.min(max,Math.max(min,Math.floor(num(b.dataset.t,0))+parseInt(b.dataset.d)));calc();
-});
-$('plus').onclick=()=>{$('missed').value=Math.floor(num('missed',0))+1;calc()};
-setMode('in');calc(false);
+setMode('in');updPill();renderList();
 </script>
 </body>
 </html>
