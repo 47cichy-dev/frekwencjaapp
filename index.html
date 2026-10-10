@@ -76,6 +76,11 @@ label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:0
 .sname{font-weight:700;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smeta{font-size:.78rem;color:var(--muted);margin-top:2px}
 .del{border:0;background:var(--chip);color:var(--muted);width:34px;height:34px;border-radius:50%;font-size:1.2rem;cursor:pointer;flex:none}
+.invrow{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--stroke)}
+.invrow code{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.95rem;letter-spacing:.04em}
+.tag{font-size:.7rem;font-weight:700;padding:3px 8px;border-radius:99px;background:var(--chip);color:var(--muted)}
+.tag.free{color:var(--ok)}
+.mini2{border:0;background:var(--chip);color:var(--text);border-radius:10px;padding:7px 10px;font:inherit;font-size:.78rem;cursor:pointer}
 .hide{display:none!important}
 </style>
 </head>
@@ -89,11 +94,25 @@ label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:0
       <div class="tabs"><button id="tabIn" class="on">Logowanie</button><button id="tabUp">Rejestracja</button></div>
       <input class="field" id="email" type="email" placeholder="Adres e-mail" autocomplete="email">
       <input class="field" id="pass" type="password" placeholder="Hasło (min. 6 znaków)" autocomplete="current-password">
+      <input class="field hide" id="invite" type="text" inputmode="numeric" maxlength="14" autocomplete="off" placeholder="Kod zaproszenia (12 cyfr)">
       <div class="err" id="err"></div>
       <button class="big full" id="go">Zaloguj się</button>
       <div class="or">lub</div>
       <button class="ghost" id="google">Kontynuuj z Google</button>
       <button class="link" id="reset">Nie pamiętam hasła</button>
+    </section>
+  </div>
+
+  <!-- EKRAN ZAPROSZENIA -->
+  <div id="inviteView" class="hide">
+    <header><h1>Potrzebujesz<br>zaproszenia</h1></header>
+    <section class="card">
+      <p class="sec">Kod zaproszenia</p>
+      <input class="field" id="invite2" type="text" inputmode="numeric" maxlength="14" autocomplete="off" placeholder="12 cyfr">
+      <div class="err" id="inviteErr"></div>
+      <button class="big full" id="joinBtn">Dołącz</button>
+      <button class="link" id="cancelInv">Anuluj i wyloguj</button>
+      <p class="note" style="margin-top:10px">Identyfikator konta (UID):<br><span id="uidTxt" style="user-select:all;word-break:break-all"></span></p>
     </section>
   </div>
 
@@ -123,6 +142,13 @@ label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:0
       <div class="err" id="sErr" style="margin:8px 0 0"></div>
     </section>
     <div id="list"></div>
+    <section class="card hide" id="adminCard">
+      <p class="sec">Zaproszenia (admin)</p>
+      <button class="big full" id="genInv">Wygeneruj kod</button>
+      <div id="invList" style="margin-top:12px"></div>
+      <p class="sec" style="margin-top:22px">Użytkownicy</p>
+      <div id="memList"></div>
+    </section>
     <p class="note" id="sync">Dane zapisują się na Twoim koncie.</p>
   </div>
 </main>
@@ -131,7 +157,7 @@ label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:0
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signInWithPopup,GoogleAuthProvider,sendPasswordResetEmail,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,deleteDoc,collection,getDocs,query,orderBy,limit,writeBatch,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBN_q05s1N0fixyF3NrJBoccnsVWui3gdM",
@@ -144,13 +170,15 @@ const firebaseConfig = {
 };
 
 const $=id=>document.getElementById(id);
+const ADMIN_UID="WKLEJ_UID";
 const configured=!firebaseConfig.apiKey.startsWith("WKLEJ");
-let auth,db,user=null,mode="in",saveTimer,avatar="",newPer=5;
+const digits=v=>String(v).replace(/\D/g,'');
+let auth,db,user=null,mode="in",saveTimer,avatar="",newPer=5,pendingCode="";
 const S={weeks:18,req:50,subjects:[]};
 
 const errs={"auth/invalid-credential":"Nieprawidłowy e-mail lub hasło.","auth/invalid-email":"Niepoprawny adres e-mail.","auth/email-already-in-use":"Ten e-mail ma już konto. Zaloguj się.","auth/weak-password":"Hasło jest za słabe (min. 6 znaków).","auth/missing-password":"Wpisz hasło.","auth/popup-closed-by-user":"Okno logowania zostało zamknięte.","auth/too-many-requests":"Za dużo prób. Spróbuj za chwilę.","auth/network-request-failed":"Brak połączenia z internetem."};
 const showErr=e=>{$('err').style.color='var(--bad)';$('err').textContent=errs[e.code]||"Coś poszło nie tak. Spróbuj ponownie."};
-function setMode(m){mode=m;$('tabIn').classList.toggle('on',m==='in');$('tabUp').classList.toggle('on',m==='up');$('go').textContent=m==='in'?'Zaloguj się':'Załóż konto';$('pass').autocomplete=m==='in'?'current-password':'new-password';$('err').textContent='';$('reset').classList.toggle('hide',m==='up')}
+function setMode(m){mode=m;$('tabIn').classList.toggle('on',m==='in');$('tabUp').classList.toggle('on',m==='up');$('go').textContent=m==='in'?'Zaloguj się':'Załóż konto';$('pass').autocomplete=m==='in'?'current-password':'new-password';$('err').textContent='';$('reset').classList.toggle('hide',m==='up');$('invite').classList.toggle('hide',m==='in')}
 $('tabIn').onclick=()=>setMode('in');$('tabUp').onclick=()=>setMode('up');
 
 const EMOJIS=['😀','😎','🤓','🦊','🐼','🐱','🐶','🦁','🐸','🐧','🦄','🚀','⚽','🎮','🎧','📚','🌈','🔥','🌵','🍕'];
@@ -234,22 +262,100 @@ document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{
   el.value=Math.min(max,Math.max(min,(parseInt(el.value)||0)+parseInt(b.dataset.d)));onGlobal();
 });
 
+async function redeem(u,code){
+  try{
+    const b=writeBatch(db);
+    b.update(doc(db,'invites',code),{usedBy:u.uid,usedAt:serverTimestamp()});
+    b.set(doc(db,'members',u.uid),{invite:code,joinedAt:serverTimestamp(),email:u.email||''});
+    await b.commit();return true;
+  }catch(e){return false}
+}
+const fmt=c=>c.replace(/(\d{4})(?=\d)/g,'$1-');
+function genCode(){let o='';while(o.length<12){const a=new Uint8Array(24);crypto.getRandomValues(a);for(const x of a){if(x<250&&o.length<12)o+=x%10}}return o}
+async function loadInvites(){
+  const L=$('invList');
+  try{
+    const snap=await getDocs(query(collection(db,'invites'),orderBy('createdAt','desc'),limit(30)));
+    L.textContent='';
+    snap.forEach(d=>{
+      const v=d.data(),row=document.createElement('div');row.className='invrow';
+      const code=document.createElement('code');code.textContent=fmt(d.id);
+      const tag=document.createElement('span');tag.className='tag'+(v.usedBy?'':' free');tag.textContent=v.usedBy?'użyty':'wolny';
+      const cp=document.createElement('button');cp.className='mini2';cp.textContent='Kopiuj';
+      cp.onclick=()=>{try{navigator.clipboard.writeText(d.id)}catch(e){}cp.textContent='Skopiowano'};
+      const del=document.createElement('button');del.className='mini2';del.textContent='×';del.setAttribute('aria-label','Usuń kod');
+      del.onclick=async()=>{try{await deleteDoc(doc(db,'invites',d.id))}catch(e){}loadInvites()};
+      row.append(code,tag,cp,del);L.appendChild(row);
+    });
+    if(!L.children.length)L.textContent='Brak kodów. Wygeneruj pierwszy.';
+  }catch(e){L.textContent='Nie udało się wczytać kodów (sprawdź reguły Firestore i ADMIN_UID).'}
+}
+
+async function loadMembers(){
+  const L=$('memList');
+  try{
+    const snap=await getDocs(query(collection(db,'members'),orderBy('joinedAt','desc'),limit(100)));
+    L.textContent='';
+    snap.forEach(d=>{
+      const v=d.data(),row=document.createElement('div');row.className='invrow';
+      const info=document.createElement('div');info.style.cssText='flex:1;min-width:0';
+      const em=document.createElement('div');em.style.cssText='font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';em.textContent=v.email||d.id;
+      const dt=document.createElement('div');dt.className='smeta';
+      dt.textContent=v.joinedAt&&v.joinedAt.toDate?'Dołączył/-a '+v.joinedAt.toDate().toLocaleDateString('pl-PL'):'';
+      info.append(em,dt);
+      const del=document.createElement('button');del.className='mini2';del.textContent='Odbierz dostęp';
+      del.onclick=async()=>{
+        if(!confirm('Odebrać dostęp użytkownikowi '+(v.email||d.id)+'? Jego przedmioty zostaną usunięte.'))return;
+        try{const b=writeBatch(db);b.delete(doc(db,'users',d.id));b.delete(doc(db,'members',d.id));await b.commit()}
+        catch(e){alert('Nie udało się odebrać dostępu.')}
+        loadMembers();
+      };
+      row.append(info,del);L.appendChild(row);
+    });
+    if(!L.children.length)L.textContent='Nikt jeszcze nie dołączył.';
+  }catch(e){L.textContent='Nie udało się wczytać użytkowników (sprawdź reguły Firestore).'}
+}
+
 if(!configured){$('cfgWarn').classList.remove('hide');$('authView').classList.remove('hide')}
 else{
   const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);
   $('go').onclick=async()=>{
     $('err').textContent='';
+    if(mode==='up'){pendingCode=digits($('invite').value);if(pendingCode.length!==12){$('err').textContent='Wpisz 12-cyfrowy kod zaproszenia.';return}}
     try{const e=$('email').value.trim(),p=$('pass').value;
       mode==='in'?await signInWithEmailAndPassword(auth,e,p):await createUserWithEmailAndPassword(auth,e,p)}catch(x){showErr(x)}};
-  $('google').onclick=async()=>{try{await signInWithPopup(auth,new GoogleAuthProvider())}catch(x){showErr(x)}};
+  $('google').onclick=async()=>{pendingCode=mode==='up'?digits($('invite').value):'';try{await signInWithPopup(auth,new GoogleAuthProvider())}catch(x){showErr(x)}};
   $('reset').onclick=async()=>{
     const e=$('email').value.trim();if(!e){$('err').textContent='Wpisz najpierw swój e-mail.';return}
     try{await sendPasswordResetEmail(auth,e);$('err').style.color='var(--ok)';$('err').textContent='Wysłaliśmy link do zmiany hasła.'}catch(x){showErr(x)}};
   $('out').onclick=()=>signOut(auth);
+  $('joinBtn').onclick=async()=>{
+    const c=digits($('invite2').value);
+    if(c.length!==12){$('inviteErr').textContent='Wpisz 12-cyfrowy kod.';return}
+    $('inviteErr').textContent='';
+    if(await redeem(user,c))location.reload();
+    else $('inviteErr').textContent='Ten kod jest nieprawidłowy lub został już wykorzystany.';
+  };
+  $('cancelInv').onclick=async()=>{try{await user.delete()}catch(e){}try{await signOut(auth)}catch(e){}};
+  $('genInv').onclick=async()=>{
+    try{await setDoc(doc(db,'invites',genCode()),{createdAt:serverTimestamp(),usedBy:null});loadInvites()}
+    catch(e){$('invList').textContent='Nie udało się utworzyć kodu (sprawdź reguły Firestore i ADMIN_UID).'}
+  };
   onAuthStateChanged(auth,async u=>{
     user=u;
-    $('authView').classList.toggle('hide',!!u);$('appView').classList.toggle('hide',!u);
-    if(!u)return;
+    ['authView','inviteView','appView'].forEach(id=>$(id).classList.add('hide'));
+    if(!u){$('authView').classList.remove('hide');return}
+    let ok=u.uid===ADMIN_UID;
+    if(!ok){try{ok=(await getDoc(doc(db,'members',u.uid))).exists()}catch(e){ok=false}}
+    if(!ok&&pendingCode){
+      const r=await redeem(u,pendingCode);pendingCode='';
+      if(r)ok=true;else $('inviteErr').textContent='Ten kod jest nieprawidłowy lub został już wykorzystany.';
+    }
+    if(!ok){$('uidTxt').textContent=u.uid;$('inviteView').classList.remove('hide');return}
+    $('appView').classList.remove('hide');
+    const adm=u.uid===ADMIN_UID;
+    $('adminCard').classList.toggle('hide',!adm);
+    if(adm){loadInvites();loadMembers()}
     avatar='';S.weeks=18;S.req=50;S.subjects=[];
     try{
       const snap=await getDoc(doc(db,'users',u.uid));
