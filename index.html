@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ile lekcji mogę opuścić?</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#5b6cff">
+<meta name="apple-mobile-web-app-title" content="Frekwencja">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
 :root{--bg:#eef0fb;--bg2:#dfe4ff;--glass:rgba(255,255,255,.72);--stroke:rgba(255,255,255,.9);--text:#161a2e;--muted:#68708c;--accent:#5b6cff;--accent2:#9b6bff;--ok:#16a34a;--warn:#f59e0b;--bad:#ef4444;--track:rgba(91,108,255,.14);--chip:rgba(91,108,255,.1);--shadow:0 10px 30px rgba(60,70,140,.12)}
 @media (prefers-color-scheme:dark){:root{--bg:#0b0d1a;--bg2:#171a35;--glass:rgba(30,34,66,.62);--stroke:rgba(255,255,255,.08);--text:#eef0ff;--muted:#9aa2c7;--accent:#7b8aff;--accent2:#b18bff;--track:rgba(123,138,255,.16);--chip:rgba(123,138,255,.14);--shadow:0 10px 30px rgba(0,0,0,.4)}}
@@ -53,6 +60,11 @@ label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:0
 .note{font-size:.74rem;color:var(--muted);margin:2px 6px 0;text-align:center}
 .warn{background:rgba(245,158,11,.15);color:var(--warn);border-radius:16px;padding:12px 14px;font-size:.85rem;margin-bottom:14px}
 .credit{position:fixed;right:14px;bottom:calc(10px + env(safe-area-inset-bottom,0px));font-size:.75rem;font-weight:600;color:var(--muted);background:var(--glass);border:1px solid var(--stroke);padding:5px 12px;border-radius:99px;pointer-events:none}
+.av{width:46px;height:46px;border-radius:50%;border:2px solid var(--accent);background:var(--chip);padding:0;overflow:hidden;cursor:pointer;font-size:1.5rem;display:flex;align-items:center;justify-content:center;color:var(--text);font-weight:800;flex:none}
+.av img{width:100%;height:100%;object-fit:cover}
+.pick{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.pick button{aspect-ratio:1;border:0;border-radius:14px;background:var(--chip);font-size:1.6rem;cursor:pointer}
+.pick button:active{transform:scale(.9)}
 .hide{display:none!important}
 </style>
 </head>
@@ -78,8 +90,13 @@ label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin:0
   <div id="appView" class="hide">
     <header>
       <h1>Ile lekcji mogę<br>jeszcze opuścić?</h1>
-      <div style="text-align:right"><div class="pill" id="pill">18 tygodni</div><button class="link" id="out" style="margin-top:6px">Wyloguj</button></div>
+      <div style="text-align:right"><div style="display:flex;align-items:center;gap:10px;justify-content:flex-end"><div class="pill" id="pill">18 tygodni</div><button class="av" id="avBtn" aria-label="Zmień avatar"></button></div><button class="link" id="out" style="margin-top:6px">Wyloguj</button></div>
     </header>
+    <section class="card hide" id="picker">
+      <p class="sec">Wybierz avatar</p>
+      <div class="pick" id="pickGrid"></div>
+      <button class="ghost hide" id="useGoogle" style="margin-top:12px">Użyj zdjęcia z konta Google</button>
+    </section>
     <section class="card hero">
       <div class="ring">
         <svg viewBox="0 0 120 120"><circle class="tr" cx="60" cy="60" r="54"/><circle class="pr" id="pr" cx="60" cy="60" r="54"/></svg>
@@ -131,7 +148,7 @@ const firebaseConfig = {
 
 const $=id=>document.getElementById(id);
 const configured=!firebaseConfig.apiKey.startsWith("WKLEJ");
-let auth,db,user=null,mode="in",saveTimer;
+let auth,db,user=null,mode="in",saveTimer,avatar="";
 const ids=['weeks','per','req','missed'];
 
 const errs={"auth/invalid-credential":"Nieprawidłowy e-mail lub hasło.","auth/invalid-email":"Niepoprawny adres e-mail.","auth/email-already-in-use":"Ten e-mail ma już konto. Zaloguj się.","auth/weak-password":"Hasło jest za słabe (min. 6 znaków).","auth/missing-password":"Wpisz hasło.","auth/popup-closed-by-user":"Okno logowania zostało zamknięte.","auth/too-many-requests":"Za dużo prób. Spróbuj za chwilę.","auth/network-request-failed":"Brak połączenia z internetem."};
@@ -156,19 +173,33 @@ else{
     user=u;
     $('authView').classList.toggle('hide',!!u);$('appView').classList.toggle('hide',!u);
     if(u){
-      try{const s=await getDoc(doc(db,'users',u.uid));if(s.exists()){const d=s.data();ids.forEach(i=>{if(d[i]!==undefined)$(i).value=d[i]})}}
+      avatar='';
+      try{const s=await getDoc(doc(db,'users',u.uid));if(s.exists()){const d=s.data();ids.forEach(i=>{if(d[i]!==undefined)$(i).value=d[i]});if(typeof d.avatar==='string')avatar=d.avatar}}
       catch(e){$('sync').textContent='Nie udało się wczytać danych (sprawdź reguły Firestore).'}
+      renderAv();$('useGoogle').classList.toggle('hide',!u.photoURL);
       calc(false);
     }
   });
 }
 
+const EMOJIS=['😀','😎','🤓','🦊','🐼','🐱','🐶','🦁','🐸','🐧','🦄','🚀','⚽','🎮','🎧','📚','🌈','🔥','🌵','🍕'];
+function renderAv(){
+  const b=$('avBtn');b.textContent='';
+  if(!user)return;
+  const useImg=user.photoURL&&(avatar===''||avatar==='google');
+  if(useImg){const i=document.createElement('img');i.src=user.photoURL;i.referrerPolicy='no-referrer';i.alt='';b.appendChild(i)}
+  else if(avatar&&avatar!=='google')b.textContent=avatar;
+  else b.textContent=(user.email||'?')[0].toUpperCase();
+}
+EMOJIS.forEach(e=>{const x=document.createElement('button');x.textContent=e;x.onclick=()=>{avatar=e;renderAv();$('picker').classList.add('hide');save()};$('pickGrid').appendChild(x)});
+$('useGoogle').onclick=()=>{avatar='google';renderAv();$('picker').classList.add('hide');save()};
+$('avBtn').onclick=()=>$('picker').classList.toggle('hide');
 const num=(id,def)=>{const v=parseFloat($(id).value);return isNaN(v)||v<0?def:v};
 const weeksWord=n=>n===1?'tydzień':(n%10>=2&&n%10<=4&&!(n%100>=12&&n%100<=14))?'tygodnie':'tygodni';
 function save(){
   if(!user)return;clearTimeout(saveTimer);
   saveTimer=setTimeout(async()=>{
-    const d={};ids.forEach(i=>d[i]=parseFloat($(i).value)||0);
+    const d={};ids.forEach(i=>d[i]=parseFloat($(i).value)||0);d.avatar=avatar;
     try{await setDoc(doc(db,'users',user.uid),d,{merge:true});$('sync').textContent='Zapisano na koncie ✓'}
     catch(e){$('sync').textContent='Błąd zapisu (sprawdź reguły Firestore).'}
   },600);
